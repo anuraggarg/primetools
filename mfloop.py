@@ -12,7 +12,6 @@
 # uses lockfiles to avoid conflicts when updating files.
 
 import sys
-import os.path
 import cookielib
 import urllib2
 import re
@@ -284,43 +283,30 @@ def submit_work():
     results = rs[0]
     # Read worktodo here
     work = readonly_file(workfile)
-
-    # Use the textarea form to submit several results at once.
-    buffer = []
-    sendgroup = {}
-    write_group = {}
-    sent = []
-    results_send, results_write, results_keep = [], [], []
-    # results_write: to be appended to results_sent
-    # results_send: to be submitted to mersenne.org
-    # results_keep: Incomplete results to be saved back to resultsfile
+    buffer, results_write, results_incomplete = [], [], []
+    # buffer: used to temporarily store timestamp line
+    # results_write: to be submitted to mersenne.org
+    # results_incomplete: Incomplete results to be saved back to resultsfile
     while len(results) > 0:
         line = results.pop(0)
         s = re.search(r"M([0-9]*) ", line)
         if s:
             mersenne = s.groups()[0]
             if not "," + mersenne + "," in work:
-                if not mersenne in sendgroup:
-                    sendgroup[mersenne] = []
-                sendgroup[mersenne].append(line)
-                results_send.append(line)
-                if not mersenne in write_group:
-                    write_group[mersenne] = []
-                if len(buffer):
-                    write_group[mersenne].extend(buffer)
-                    results_write.extend(buffer)
-                    buffer = []
-                write_group[mersenne].append(line)
+                results_write.extend(buffer)
                 results_write.append(line)
             else:
-                if len(buffer):
-                    results_keep.extend(buffer)
-                    buffer = []
-                results_keep.append(line)
+                results_incomplete.extend(buffer)
+                results_incomplete.append(line)
+            buffer = []
         else:
             buffer.append(line)
     if len(buffer):
-        results_keep.extend(buffer)
+        results_incomplete.extend(buffer)
+
+    # Use the textarea form to submit several results at once.
+    sent = []
+    results_keep = []
 
     if len(results_write) == 0:
         debug_print("No complete results found to send.")
@@ -330,7 +316,7 @@ def submit_work():
             sendbatch = []
             while sum(map(len, sendbatch)) < sendlimit and len(results_write) > 0:
                 sendbatch.append(results_write.pop(0))
-
+            # No need to send the timestamps.
             data = "\n".join([x for x in sendbatch if re.search(r"M([0-9]*) ", x)])
 
             debug_print("Submitting\n" + data)
@@ -347,7 +333,8 @@ def submit_work():
             except urllib2.URLError:
                 results_keep += sendbatch
                 debug_print("URL open error")
-
+    # Append incomplete results to any that failed to be sent.
+    results_keep.extend(results_incomplete)
     write_list_file(resultsfile, results_keep)
     write_list_file(sentfile, sent, "a")
 
