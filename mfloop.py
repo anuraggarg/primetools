@@ -265,18 +265,6 @@ def get_assignment():
 
     write_list_file(workfile, new_tasks, "a")
 
-def mersenne_find(line, complete=True):
-    work = readonly_file(workfile)
-
-    s = re.search(r"M([0-9]*) ", line)
-    if s:
-        mersenne = s.groups()[0]
-        if not "," + mersenne + "," in work:
-            return complete
-        else:
-            return not complete
-    else:
-        return False
 
 def submit_work():
     # Only submit completed work, i.e. the exponent must not exist in
@@ -294,28 +282,56 @@ def submit_work():
         return "locked"
 
     results = rs[0]
-
-    # Only for new results, to be appended to results_sent
-    sent = []
+    # Read worktodo here
+    work = readonly_file(workfile)
 
     # Use the textarea form to submit several results at once.
+    buffer = []
+    sendgroup = {}
+    write_group = {}
+    sent = []
+    results_send, results_write, results_keep = [], [], []
+    # results_write: to be appended to results_sent
+    # results_send: to be submitted to mersenne.org
+    # results_keep: Incomplete results to be saved back to resultsfile
+    while len(results) > 0:
+        line = results.pop(0)
+        s = re.search(r"M([0-9]*) ", line)
+        if s:
+            mersenne = s.groups()[0]
+            if not "," + mersenne + "," in work:
+                if not mersenne in sendgroup:
+                    sendgroup[mersenne] = []
+                sendgroup[mersenne].append(line)
+                results_send.append(line)
+                if not mersenne in write_group:
+                    write_group[mersenne] = []
+                if len(buffer):
+                    write_group[mersenne].extend(buffer)
+                    results_write.extend(buffer)
+                    buffer = []
+                write_group[mersenne].append(line)
+                results_write.append(line)
+            else:
+                if len(buffer):
+                    results_keep.extend(buffer)
+                    buffer = []
+                results_keep.append(line)
+        else:
+            buffer.append(line)
+    if len(buffer):
+        results_keep.extend(buffer)
 
-    # Useless lines (not including a M#) are now discarded completely.
-
-    results_send = filter(mersenne_find, results)
-    results_keep = filter(lambda x: mersenne_find(x, complete=False), results)
-
-    if len(results_send) == 0:
+    if len(results_write) == 0:
         debug_print("No complete results found to send.")
         # Don't just return here, files are still locked...
     else:
-        while len(results_send) > 0:
+        while len(results_write) > 0:
             sendbatch = []
-            while sum(map(len, sendbatch)) < sendlimit and \
-                  len(results_send) > 0:
-                sendbatch.append(results_send.pop(0))
+            while sum(map(len, sendbatch)) < sendlimit and len(results_write) > 0:
+                sendbatch.append(results_write.pop(0))
 
-            data = "\n".join(sendbatch)
+            data = "\n".join([x for x in sendbatch if re.search(r"M([0-9]*) ", x)])
 
             debug_print("Submitting\n" + data)
 
